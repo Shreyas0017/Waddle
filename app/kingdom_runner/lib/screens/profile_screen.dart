@@ -149,7 +149,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
               _buildProfileCard(context, user, theme),
               const SizedBox(height: 16),
               // ── Current Mode card (Attack / Defend / Idle) ──
-              _buildCurrentModeCard(context, theme, territoryProvider),
+              _buildCurrentModeCard(
+                context, theme, territoryProvider, overlaps,
+              ),
               const SizedBox(height: 16),
               // ── Server-backed invasion cards ──
               if (territoryProvider.myActiveDefenses.isNotEmpty) ...[
@@ -221,6 +223,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     BuildContext context,
     ThemeData theme,
     TerritoryProvider territoryProvider,
+    List<OverlapInfo> overlaps,
   ) {
     final mode = territoryProvider.currentMode;
 
@@ -249,10 +252,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
         accentColor = const Color(0xFFFF6B00);
         break;
       default:
-        icon = Icons.landscape;
-        title = '⚔️ Kingdom Status';
-        subtitle = 'No active invasions';
-        accentColor = const Color(0xFF16A34A);
+        if (overlaps.isNotEmpty) {
+          icon = Icons.warning_amber_rounded;
+          title = '⚔️ Territory Contested';
+          subtitle = '${overlaps.length} territory overlap${overlaps.length > 1 ? 's' : ''} detected';
+          accentColor = const Color(0xFFFF6B00);
+        } else {
+          icon = Icons.landscape;
+          title = '⚔️ Kingdom Status';
+          subtitle = 'No active invasions';
+          accentColor = const Color(0xFF16A34A);
+        }
     }
 
     return Container(
@@ -801,39 +811,154 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ],
                     ),
                   ),
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      territoryProvider.reclaimTerritory(info.myTerritoryId);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            '🏃 Walk back and defend your territory!',
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          territoryProvider.reclaimTerritory(info.myTerritoryId);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                '🏃 Walk back and defend your territory!',
+                              ),
+                              backgroundColor: Colors.orange,
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.shield, size: 13),
+                        label: const Text(
+                          'Defend',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
                           ),
-                          backgroundColor: Colors.orange,
                         ),
-                      );
-                    },
-                    icon: const Icon(Icons.shield, size: 13),
-                    label: const Text(
-                      'Defend',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFF6B00),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 7,
+                          ),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
                       ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFFF6B00),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 7,
-                      ),
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
+                      // ☢️ Nuke button — always visible when user has nukes
+                      Builder(builder: (_) {
+                        final auth = Provider.of<AuthProvider>(context, listen: false);
+                        final nukes = auth.currentUser?.nukeInventory ?? 0;
+                        if (nukes < 1) return const SizedBox.shrink();
+                        // Check for a matching server invasion (optional)
+                        final matchingInvasion = territoryProvider.myActiveDefenses
+                            .where((inv) =>
+                                inv['territoryId'] == info.myTerritoryId)
+                            .toList();
+                        final invasionId = matchingInvasion.isNotEmpty
+                            ? (matchingInvasion.first['_id'] ??
+                                matchingInvasion.first['id'] ??
+                                '')
+                            : '';
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: ElevatedButton.icon(
+                            onPressed: () async {
+                              final confirmed = await showDialog<bool>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  title: const Text('☢️ Use Nuke?'),
+                                  content: const Text(
+                                    'This will destroy the invader\'s nearby territories! '
+                                    'This action cannot be undone.',
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(ctx, false),
+                                      child: const Text('Cancel'),
+                                    ),
+                                    ElevatedButton(
+                                      onPressed: () => Navigator.pop(ctx, true),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFFDC2626),
+                                      ),
+                                      child: const Text('NUKE IT',
+                                          style: TextStyle(color: Colors.white)),
+                                    ),
+                                  ],
+                                ),
+                              );
+                              if (confirmed != true) return;
+                              try {
+                                // Use invasion-based nuke if available, otherwise territory-based
+                                final Map<String, dynamic> result;
+                                if (invasionId.toString().isNotEmpty) {
+                                  result = await auth.apiService.useNuke(invasionId);
+                                } else {
+                                  result = await auth.apiService.useNukeByTerritory(
+                                    info.myTerritoryId,
+                                    enemyUsername: info.theirUsername,
+                                  );
+                                }
+                                await auth.loadCurrentUser();
+                                await territoryProvider.loadInvasions();
+                                await territoryProvider.loadTerritories();
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        '☢️ NUKED! Destroyed ${result['destroyedCount']} '
+                                        'enemy territories (${result['destroyedArea']}m²)',
+                                      ),
+                                      backgroundColor: const Color(0xFFDC2626),
+                                    ),
+                                  );
+                                }
+                              } catch (e) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        '❌ ${e.toString().replaceFirst("Exception: ", "")}',
+                                      ),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
+                                }
+                              }
+                            },
+                            icon: SvgPicture.asset(
+                              'assets/nuke.svg',
+                              width: 13,
+                              height: 13,
+                            ),
+                            label: Text(
+                              'Nuke ($nukes)',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFDC2626),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 5,
+                              ),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                          ),
+                        );
+                      }),
+                    ],
                   ),
                 ],
               ),

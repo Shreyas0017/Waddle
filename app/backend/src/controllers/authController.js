@@ -97,7 +97,7 @@ exports.getCurrentUser = async (req, res) => {
 // Update user profile
 exports.updateUserProfile = async (req, res) => {
   try {
-    const { dailyCalories, weight, height, dailyProtein } = req.body;
+    const { dailyCalories, weight, height, dailyProtein, dateOfBirth, avatarPath, onboardingCompleted } = req.body;
     const userId = req.user._id;
 
     const updateData = {};
@@ -105,6 +105,9 @@ exports.updateUserProfile = async (req, res) => {
     if (weight !== undefined) updateData.weight = weight;
     if (height !== undefined) updateData.height = height;
     if (dailyProtein !== undefined) updateData.dailyProtein = dailyProtein;
+    if (dateOfBirth !== undefined) updateData.dateOfBirth = dateOfBirth;
+    if (avatarPath !== undefined) updateData.avatarPath = avatarPath;
+    if (onboardingCompleted !== undefined) updateData.onboardingCompleted = onboardingCompleted;
 
     const updatedUser = await User.findByIdAndUpdate(
       userId,
