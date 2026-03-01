@@ -94,8 +94,41 @@ const isClosedLoop = (path, thresholdMeters = 100) => {
   return distance <= thresholdMeters;
 };
 
+// Haversine distance between two points (meters)
+const pointDistance = (p1, p2) => {
+  const R = 6371e3;
+  const φ1 = p1.lat * Math.PI / 180;
+  const φ2 = p2.lat * Math.PI / 180;
+  const Δφ = (p2.lat - p1.lat) * Math.PI / 180;
+  const Δλ = (p2.lng - p1.lng) * Math.PI / 180;
+  const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+            Math.cos(φ1) * Math.cos(φ2) *
+            Math.sin(Δλ/2) * Math.sin(Δλ/2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
+// Remove GPS outlier points — consecutive points with >50m gap are impossible
+// for walking-speed GPS updates (distanceFilter 3m, so 50m is extremely generous)
+const sanitizePath = (path) => {
+  if (!path || path.length < 2) return path || [];
+
+  const clean = [path[0]];
+  for (let i = 1; i < path.length; i++) {
+    const d = pointDistance(clean[clean.length - 1], path[i]);
+    if (d <= 50) {
+      clean.push(path[i]);
+    } else {
+      console.log(`🧹 Backend: stripped outlier #${i}: ${d.toFixed(0)}m jump`);
+    }
+  }
+
+  return clean;
+};
+
 module.exports = {
   calculatePolygonArea,
   calculateDistance,
   isClosedLoop,
+  sanitizePath,
+  pointDistance,
 };

@@ -938,4 +938,29 @@ class ApiService {
       throw Exception(decoded['error'] ?? 'Failed to use nuke');
     }
   }
+
+  /// Use a Nuke by territory ID (for geometry overlaps without a server invasion).
+  Future<Map<String, dynamic>> useNukeByTerritory(
+    String territoryId, {
+    String? enemyUsername,
+  }) async {
+    final headers = await getHeaders();
+    final body = <String, dynamic>{'territoryId': territoryId};
+    if (enemyUsername != null) body['enemyUsername'] = enemyUsername;
+    final response = await http
+        .post(
+          Uri.parse(
+            '${ApiConfig.baseUrl}${ApiConfig.shopEndpoint}/use-nuke-territory',
+          ),
+          headers: headers,
+          body: jsonEncode(body),
+        )
+        .timeout(_timeout);
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    } else {
+      final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+      throw Exception(decoded['error'] ?? 'Failed to use nuke');
+    }
+  }
 }

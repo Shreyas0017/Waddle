@@ -173,6 +173,110 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _locationService.sensorService.onStepDetected = (steps) {
       // Step count tracking - can be used for analytics if needed
     };
+
+    // Show safety disclaimer on first launch
+    _showSafetyDisclaimerIfNeeded();
+  }
+
+  /// Shows a one-time safety disclaimer dialog to first-time users.
+  Future<void> _showSafetyDisclaimerIfNeeded() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool('safety_disclaimer_accepted') == true) return;
+    if (!mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            const Icon(Icons.health_and_safety, color: Color(0xFFEF4444), size: 28),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Safety First!',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Theme.of(ctx).colorScheme.onSurface,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Kingdom Runner is best enjoyed when you stay aware of your surroundings. Please read and agree:',
+                style: Theme.of(ctx).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 16),
+              _safetyPoint(
+                '🚶',
+                'Do NOT look at your phone while walking or running. '
+                'Use audio cues and stop in a safe place to check the app.',
+              ),
+              const SizedBox(height: 10),
+              _safetyPoint(
+                '👀',
+                'Always be aware of your surroundings — watch for traffic, '
+                'obstacles, and other people.',
+              ),
+              const SizedBox(height: 10),
+              _safetyPoint(
+                '🌙',
+                'Avoid playing in unsafe or unfamiliar areas, especially at night.',
+              ),
+              const SizedBox(height: 10),
+              _safetyPoint(
+                '🏥',
+                'Stop immediately if you feel dizzy, unwell, or in pain. '
+                'Your health matters more than any territory.',
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () async {
+                await prefs.setBool('safety_disclaimer_accepted', true);
+                if (ctx.mounted) Navigator.of(ctx).pop();
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF16A34A),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: const Text(
+                'I Understand & Agree',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static Widget _safetyPoint(String emoji, String text) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(emoji, style: const TextStyle(fontSize: 22)),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(text, style: const TextStyle(fontSize: 14, height: 1.4)),
+        ),
+      ],
+    );
   }
 
   @override

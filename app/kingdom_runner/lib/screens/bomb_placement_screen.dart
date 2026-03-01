@@ -518,6 +518,57 @@ class _BombPlacementScreenState extends State<BombPlacementScreen> {
             ),
           ),
 
+          // ── Feedback banner (top, below app bar) ──────────────────────────
+          if (_feedback != null)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 64,
+              left: 16,
+              right: 16,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: _feedbackIsError
+                      ? Colors.red.withOpacity(0.92)
+                      : Colors.green.withOpacity(0.92),
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: (_feedbackIsError ? Colors.red : Colors.green)
+                          .withOpacity(0.3),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      _feedbackIsError
+                          ? Icons.error_outline_rounded
+                          : Icons.check_circle_outline_rounded,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        _feedback!,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
           // ── Re-center FAB ──────────────────────────────────────────────────
           Positioned(
             bottom: MediaQuery.of(context).padding.bottom + 260,
@@ -688,39 +739,6 @@ class _BombPlacementScreenState extends State<BombPlacementScreen> {
                         ],
                       ),
 
-                      // Feedback banner
-                      if (_feedback != null) ...[
-                        const SizedBox(height: 12),
-                        AnimatedContainer(
-                          duration: const Duration(milliseconds: 300),
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 10,
-                          ),
-                          decoration: BoxDecoration(
-                            color: _feedbackIsError
-                                ? Colors.red.withOpacity(0.12)
-                                : Colors.green.withOpacity(0.12),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                              color: _feedbackIsError
-                                  ? Colors.red.withOpacity(0.4)
-                                  : Colors.green.withOpacity(0.4),
-                            ),
-                          ),
-                          child: Text(
-                            _feedback!,
-                            style: TextStyle(
-                              color: _feedbackIsError
-                                  ? Colors.red
-                                  : Colors.green,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ],
                     ],
                   ),
                 ),

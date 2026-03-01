@@ -1,6 +1,6 @@
 const Territory = require('../models/Territory');
 const User = require('../models/User');
-const { calculatePolygonArea } = require('../utils/geometry');
+const { calculatePolygonArea, calculateDistance, sanitizePath } = require('../utils/geometry');
 
 // Get all territories
 exports.getTerritories = async (req, res) => {
@@ -20,65 +20,65 @@ exports.getTerritories = async (req, res) => {
 // Create new territory
 exports.createTerritory = async (req, res) => {
   try {
-    console.log('🌍 CREATE TERRITORY REQUEST RECEIVED');
-    console.log('📦 Full request body:', JSON.stringify(req.body, null, 2));
+    console.log('🌍 CREATE TERRITORY REQUEST');
     
     const { path, formsClosedLoop } = req.body;
-
-    console.log(`Creating territory for user ${req.user.username}`);
-    console.log(`Path length: ${path ? path.length : 0}, Forms loop: ${formsClosedLoop}`);
-    console.log(`Path sample (first 3 points):`, path ? path.slice(0, 3) : 'No path');
+    console.log(`📦 User: ${req.user.username}, Raw points: ${path ? path.length : 0}`);
 
     if (!path || path.length < 1) {
       console.log('❌ REJECTED: No points provided');
-      return res.status(400).json({ error: 'Path needs at least 1 point', path: path });
+      return res.status(400).json({ error: 'No path provided' });
     }
 
-    // For single or double points, create a tiny polygon around them
-    let polygonPath = path;
-    if (path.length === 1) {
-      // Create a tiny square around the single point (approx 1 meter)
-      const offset = 0.000009; // ~1 meter in degrees
-      const p = path[0];
-      polygonPath = [
-        { lat: p.lat + offset, lng: p.lng - offset },
-        { lat: p.lat + offset, lng: p.lng + offset },
-        { lat: p.lat - offset, lng: p.lng + offset },
-        { lat: p.lat - offset, lng: p.lng - offset },
-      ];
-      console.log('📍 Single point converted to tiny polygon');
-    } else if (path.length === 2) {
-      // Create a tiny rectangle around the two points
-      const offset = 0.000009; // ~1 meter in degrees
-      const p1 = path[0];
-      const p2 = path[1];
-      polygonPath = [
-        { lat: p1.lat + offset, lng: p1.lng - offset },
-        { lat: p2.lat + offset, lng: p2.lng + offset },
-        { lat: p2.lat - offset, lng: p2.lng + offset },
-        { lat: p1.lat - offset, lng: p1.lng - offset },
-      ];
-      console.log('📍 Two points converted to tiny polygon');
+    // ── Step 1: Sanitize path — remove GPS outlier points ──────────────────
+    const cleanPath = sanitizePath(path);
+    console.log(`🧹 Sanitized: ${path.length} → ${cleanPath.length} points`);
+
+    if (cleanPath.length < 3) {
+      console.log('❌ REJECTED: Not enough clean GPS points for territory');
+      return res.status(400).json({ 
+        error: 'Not enough valid GPS points after filtering (need ≥3)' 
+      });
     }
 
-    // Calculate area
-    const area = calculatePolygonArea(polygonPath);
-    console.log(`Calculated area: ${area.toFixed(6)} m²`);
+    // ── Step 2: Calculate walked distance and validate ─────────────────────
+    const walkDistance = calculateDistance(cleanPath);
+    console.log(`📏 Walk distance: ${walkDistance.toFixed(1)}m`);
 
-    // No minimum area requirement - accept any size, even 0
-    console.log(`✅ Area accepted: ${area.toFixed(6)} m²`);
+    if (walkDistance < 20) {
+      console.log(`❌ REJECTED: Walk too short (${walkDistance.toFixed(1)}m)`);
+      return res.status(400).json({ 
+        error: `Walk too short (${walkDistance.toFixed(0)}m). Need at least 20m.` 
+      });
+    }
 
-    // Create territory even if not a perfect closed loop
+    // ── Step 3: Calculate area and validate plausibility ───────────────────
+    const area = calculatePolygonArea(cleanPath);
+    // Max reasonable area: walkDistance × 25m (generous strip width)
+    // A perfect circle of perimeter L encloses L²/(4π) ≈ L²/12.6
+    // Using L×25 is ~3x more generous than physics allows
+    const maxArea = Math.max(walkDistance * 25, 500);
+    console.log(`📐 Area: ${area.toFixed(0)}m², Max allowed: ${maxArea.toFixed(0)}m²`);
+
+    if (area > maxArea) {
+      console.log(`❌ REJECTED: Area ${area.toFixed(0)}m² > max ${maxArea.toFixed(0)}m² for ${walkDistance.toFixed(0)}m walk`);
+      return res.status(400).json({ 
+        error: `Territory too large (${area.toFixed(0)}m²) for walk distance (${walkDistance.toFixed(0)}m)` 
+      });
+    }
+
+    // ── Step 4: Create territory ──────────────────────────────────────────
+    console.log(`✅ Area accepted: ${area.toFixed(2)} m²`);
+
     const territory = new Territory({
       userId: req.user._id,
       username: req.user.username,
-      polygon: polygonPath,
+      polygon: cleanPath,
       area,
     });
 
     await territory.save();
-    console.log(`✅ Territory created: ${territory._id}`);
-    console.log(`📦 Returning territory: ${JSON.stringify({ id: territory._id, area: territory.area, polygon: territory.polygon.length + ' points' })}`);
+    console.log(`✅ Territory created: ${territory._id}, ${area.toFixed(0)}m²`);
 
     // Update user's total territory size
     const userTerritories = await Territory.find({ 
@@ -86,15 +86,27 @@ exports.createTerritory = async (req, res) => {
       isActive: true 
     });
     const totalArea = userTerritories.reduce((sum, t) => sum + t.area, 0);
-    
-    const user = await User.findByIdAndUpdate(req.user._id, {
+
+    // ── Topaz coin reward ─────────────────────────────────────────────────
+    // Base: 1 Topaz per 100m² (min 5, max 200)
+    // Streak bonus: >7 days → ×2.0, >3 days → ×1.5
+    const baseCoins = Math.floor(area / 100);
+    const streak = req.user.activityStreak || 0;
+    const multiplier = streak > 7 ? 2.0 : streak > 3 ? 1.5 : 1.0;
+    const topazEarned = Math.min(Math.max(Math.round(baseCoins * multiplier), 5), 200);
+
+    const updatedUser = await User.findByIdAndUpdate(req.user._id, {
       territorySize: totalArea,
       lastActivity: new Date(),
+      $inc: { topazCoins: topazEarned },
     }, { new: true });
-    
-    console.log(`✅ Updated user ${req.user.username} territory size to ${totalArea.toFixed(2)} m²`);
 
-    res.status(201).json(territory);
+    const totalTopaz = updatedUser ? updatedUser.topazCoins : topazEarned;
+    console.log(`💎 Topaz awarded: +${topazEarned} (streak ×${multiplier}) → total ${totalTopaz}`);
+    
+    console.log(`📊 User ${req.user.username} total territory: ${totalArea.toFixed(0)}m²`);
+
+    res.status(201).json({ territory, topazEarned, totalTopaz });
   } catch (error) {
     console.error('Create territory error:', error);
     res.status(500).json({ error: 'Server error creating territory', details: error.message });

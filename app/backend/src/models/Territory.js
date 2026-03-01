@@ -28,6 +28,18 @@ const territorySchema = new mongoose.Schema({
     type: Boolean,
     default: true,
   },
+  bombCount: {
+    type: Number,
+    default: 0,
+    min: 0,
+    max: 3,
+  },
+  bombPositions: [
+    {
+      lat: { type: Number, required: true },
+      lng: { type: Number, required: true },
+    },
+  ],
   createdAt: {
     type: Date,
     default: Date.now,
